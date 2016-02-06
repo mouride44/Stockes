@@ -1,0 +1,177 @@
+real hh = 1;
+real R1 = 10; // 1e-6 m
+real R2 = 40;
+real H1 = 40;
+real H2 = 60;
+real L0=H2*2./3.;// longueur de la goulte
+real D0=30; // epaisseur ????
+real Lg1= H1+H2;
+real Lg2= R1;
+real Lg3= H1;
+real Lg4 = R2-R1;
+real Lg5 = (R1+R2)*pi/8;
+border B1(t=0,1) { x = 0; y = -H2 + t*(H1+H2); label = 1;}
+border B2(t=0,1) { x = t*R1; y = H1; label = 2;}
+border B3(t=0,1) { x = R1; y = H1-t*H1; label = 3;}
+border B4(t=0,1) { x = R1 + (R2-R1)*t; y = 0; label = 4;}
+border B5(t=0,pi/2) { x = R2*cos(-t); y = H2*sin(-t); label = 5;}
+
+
+func bord1 = B1(-Lg1/hh) + B2(-Lg2/hh) + B3(-Lg3/hh) + B4(-Lg4/hh)
+ + B5(-Lg5/hh) ;
+
+mesh Th=buildmesh(bord1);
+Th = adaptmesh(Th, hh, IsMetric=1, nbvx=1000000);
+plot(Th, wait=1, fill=1);
+
+macro sign(x) ((x)<0?-1.:1.)//
+macro ssqrt(x) (sign(x)*sqrt(abs(x)))//
+fespace Vh (Th, P2);
+func FF =   ssqrt(1-y*y)*(R1+D0*y*y)  - x ;
+func F=FF(x,min(0.,y/L0)) + max(0.,y);
+//Vh Fh = F;    //F(x,min(0.,y/L0));
+
+Vh Fh2; // n+1
+Vh eta;
+
+savemesh(Th,"Th.msh");
+
+real[int] v=[0];
+
+
+real alpha=0.01;
+func G=alpha*(-(x^2)-(y-50)^2+40^2);
+Vh Fh = G;
+plot(Fh,viso=v, wait=1, cmm="Gh");
+cout << "long Fh=" << int1d(Th,levelset=Fh)(1.) << endl;
+
+
+
+// Yu, Sakai, Sethian, IFB 2003
+real rhoF=1070 * 1e-12;  // mg/(micro m^3)
+real muF =3.34 * 1e-3 ; // mg/(micro m s)
+
+real rhoG=1.225 * 1e-12;  // mg/(micro m^3)
+real muG =1.77625 * 1e-3; // mg/(micro m s)
+
+//real gamma=0.032 * 1e6 ; // mg/(s^2)
+real gamma=0.000001; // mg/(s^2)
+
+
+real t;
+real Vin=10; // micro m /s
+
+func f1=0;
+func f2=0;
+
+func h1=0;
+func h2=0;
+
+real dt=1e-3; // delta t (s)
+real delt=dt;
+
+
+int NN=30; //
+
+fespace Wh(Th,P1b);
+fespace Qh(Th,P1);
+
+Wh u1h,u2h; // u^{n+1}
+Wh u1hp,u2hp; // u^n
+Wh v1h,v2h;
+Qh ph; // p^{n+1}
+Qh qh;
+Qh courbe;
+
+Qh caractF,caractG;
+
+caractF = (Fh(x,y) >= 0 ? 1 : 0 );
+//plot(caractF,wait=1,value=true,fill=true,dim=3,cmm="caractF");
+
+caractG=1-caractF;
+//plot(caractG,wait=1,value=true,fill=true,dim=3,cmm="caractG");
+
+//plot(caractF,caractG,wait=1,value=true,fill=true,dim=3,cmm="caractF caractG");
+
+courbe= (-((dy(Fh))^2)*dxx(Fh) + 2*dx(Fh)*dy(Fh)*dxy(Fh)- 
+((dx(Fh))^2)*dyy(Fh))/((dx(Fh)*dx(Fh) + dy(Fh)*dy(Fh) )^2);
+//plot(courbe,wait=1,value=true,fill=true,dim=3,cmm="courbe");
+
+problem Stokes(u1h,u2h,ph,v1h,v2h,qh)=
+ int2d(Th)( u1h *v1h*caractF*rhoF/dt + u2h *v2h*caractF*rhoF/dt )
+-int2d(Th)( u1hp*v1h*caractF*rhoF/dt + u2hp*v2h*caractF*rhoF/dt )
++int2d(Th)(
+	  2*muF*caractF*( 
+dx(u1h)*dx(v1h) + 0.5*( dy(u1h)+dx(u2h) )*( dy(v1h)+dx(v2h) ) + dy(u2h)*dy(v2h) 
+                )
+	  )
+-int2d(Th)( (dx(v1h)+dy(v2h))*ph*caractF )
++int2d(Th)( u1h *v1h*caractG*rhoG/dt + u2h *v2h*caractG*rhoG/dt )
+-int2d(Th)( u1hp*v1h*caractG*rhoG/dt + u2hp*v2h*caractG*rhoG/dt )
++int2d(Th)(
+	  2*muG*caractG*( 
+dx(u1h)*dx(v1h) + 0.5*( dy(u1h)+dx(u2h) )*( dy(v1h)+dx(v2h) ) + dy(u2h)*dy(v2h) 
+                )
+	  )
+-int2d(Th)( (dx(v1h)+dy(v2h))*ph*caractG )
+
++int1d(Th,levelset=Fh)( gamma*(dx(Fh)*v1h+ dy(Fh)*v2h)* 
+(-((dy(Fh))^2)*dxx(Fh) + 2*dx(Fh)*dy(Fh)*dxy(Fh)- 
+((dx(Fh))^2)*dyy(Fh))/((dx(Fh)*dx(Fh) + dy(Fh)*dy(Fh) )^2)  ) 
+
+-int2d(Th)( ( dx(u1h)+dy(u2h) )*qh )
+
+-int2d(Th)( f1*v1h + f2*v2h )
+-int1d(Th,5)( h1*v1h + h2*v2h )
++on(1,u1h=0)
++on(2,u1h=0, u2h=Vin*(x+R1)*(x-R1)/(R1)^2 )
++on(3,4,u1h=0,u2h=0);
+
+
+
+problem Deplacement(Fh2,eta)=
+ int2d(Th)( ( (u1h*dx(Fh2) + u2h*dy(Fh2))*dt)*
+ ( eta+delt*( u1h*dx(eta)+u2h*dy(eta))))
+ + int2d(Th) ( Fh2 *( eta+delt*( u1h*dx(eta)+u2h*dy(eta)  )  ))   
+ - int2d(Th)( Fh *( eta+delt*( u1h*dx(eta)+u2h*dy(eta)  )  ))   
+ 
+//+on(2,Fh2=0.1-0.1*x);
+ +on(2,Fh2=Fh);
+
+
+u1hp=0;
+u2hp=0;
+
+for(int n=0;n<NN;n++){
+
+t=(n+1)*dt;
+cout << "t= " << t << endl;
+
+Stokes;
+//plot([u1h,u2h],wait=0,value=true,cmm="n="+n);
+//plot(ph,wait=0,dim=3,value=true,fill=true,cmm="n="+n);
+
+u1hp=u1h;
+u2hp=u2h;
+
+cout << "courbure/ (..)1/2 =" << int1d(Th,levelset=Fh)
+( (-((dy(Fh))^2)*dxx(Fh) + 
+2*dx(Fh)*dy(Fh)*dxy(Fh)- ((dx(Fh))^2)*dyy(Fh))/
+((dx(Fh)*dx(Fh) + dy(Fh)*dy(Fh) )^2))
+ << endl;
+
+Deplacement;
+
+Fh = Fh2;
+
+//Fh= Fh+ dt*(u1h*dx(Fh)+u2h*dy(Fh));
+
+plot(Fh,viso=v,wait=0,value=true,cmm="n="+n);
+
+
+caractF = (Fh(x,y) >= 0 ? 1 : 0 );
+
+caractG=1-caractF;
+
+};
+
